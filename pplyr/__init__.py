@@ -19,13 +19,17 @@ from .merge import (
     _inner_join as inner_join,
     _outer_join as outer_join,
     _left_join as left_join,
-    _right_join as right_join
+    _right_join as right_join,
+    _semi_join as semi_join,
+    _anti_join as anti_join
 )
 
 from .verbs import (
     _select as select,
     _drop as drop,
     _rename as rename,
+    _rename_with as rename_with,
+    _relocate as relocate,
     _filter as filter,
     _slice as slice,
     _slice_head as slice_head,
@@ -44,6 +48,7 @@ from .verbs import (
     _group_by as group_by,
     _group_by as groupby,
     _distinct as distinct,
-    _tally as tally
+    _tally as tally,
+    _pull as pull
 )
     

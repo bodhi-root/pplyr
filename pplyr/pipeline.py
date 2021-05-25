@@ -71,7 +71,9 @@ from .merge import (
     _inner_join,
     _outer_join,
     _left_join,
-    _right_join
+    _right_join,
+    _semi_join,
+    _anti_join
 )
 
 from .groups import (
@@ -80,12 +82,12 @@ from .groups import (
     _group_modify
 )
 
-from .verbs import (_select, _drop, _rename, _filter,
+from .verbs import (_select, _drop, _rename, _rename_with, _relocate, _filter,
                     _slice, _slice_head, _slice_tail, _slice_sample,
                     _slice_max, _slice_min,
                     _arrange, _mutate, _transmute, _summarise,
                     _ungroup, _group_by,
-                    _distinct, _tally)
+                    _distinct, _tally, _pull)
         
 class pipeline:
     
@@ -96,20 +98,48 @@ class pipeline:
         for p in self.chained_pipes:
             df = p(df)
         return df
-     
+    
+    ### DataFrame operations ###    
+    
     def pipe(self, f, *argv, **kvargs):
         self.chained_pipes.append(lambda df: f(df, *argv, **kvargs))
         return self
     
+    def reset_index(self, level=None, drop=False, col_level=0, col_fill=''):
+        def func(df):
+            return df.reset_index(
+                level=level, 
+                drop=drop, 
+                col_level=col_level, 
+                col_fill=col_fill)
+        return self.pipe(func)
+    
+    def apply(self, func, axis=0, raw=False, result_type=None, args=(), **kwds):
+        def wrapper(df):
+            return df.apply(func=func,
+                            axis=axis,
+                            raw=raw,
+                            result_type=result_type, 
+                            args=args,
+                            **kwds)
+        return self.pipe(wrapper)
+    
+    ### pplyr verbs ###
+    
     def select(self, *argv, **kvargs):
         return self.pipe(_select, *argv, **kvargs)
-    
     
     def drop(self, *argv, **kvargs):
         return self.pipe(_drop, *argv, **kvargs)
     
     def rename(self, *argv, **kvargs):
         return self.pipe(_rename, *argv, **kvargs)
+    
+    def rename_with(self, *argv, **kvargs):
+        return self.pipe(_rename_with, *argv, **kvargs)
+    
+    def relocate(self, *argv, **kvargs):
+        return self.pipe(_relocate, *argv, **kvargs)
     
     def filter(self, *argv, **kvargs):
         return self.pipe(_filter, *argv, **kvargs)
@@ -168,6 +198,9 @@ class pipeline:
     def tally(self, *argv, **kvargs):
         return self.pipe(_tally, *argv, **kvargs)
     
+    def pull(self, *argv, **kvargs):
+        return self.pipe(_pull, *argv, **kvargs)
+    
     # merge.py
     
     def merge(self, *argv, **kvargs):
@@ -185,6 +218,12 @@ class pipeline:
     def right_join(self, *argv, **kvargs):
         return self.pipe(_right_join, *argv, **kvargs)
     
+    def semi_join(self, *argv, **kvargs):
+        return self.pipe(_semi_join, *argv, **kvargs)
+    
+    def anti_join(self, *argv, **kvargs):
+        return self.pipe(_anti_join, *argv, **kvargs)
+    
     # groups
     
     def group_walk(self, *argv, **kvargs):
@@ -194,18 +233,8 @@ class pipeline:
         return self.pipe(_group_map, *argv, **kvargs)
     
     def group_modify(self, *argv, **kvargs):
-        return self.pipe(_group_modify, *argv, **kvargs)
+        return self.pipe(_group_modify, *argv, **kvargs)    
     
-    # DataFrame functions:
-        
-    def reset_index(self, level=None, drop=False, col_level=0, col_fill=''):
-        def func(df):
-            return df.reset_index(
-                level=level, 
-                drop=drop, 
-                col_level=col_level, 
-                col_fill=col_fill)
-        return self.pipe(func)
   
     
 

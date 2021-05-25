@@ -35,7 +35,7 @@ def _select(df, cols=None, start=None, end=None):
     df.pipe(select, start="col1", end="col3")
     """
     
-    # if we have a grouped DataFrame we'll apply select()
+    # if we have a grouped DataFrame we'll apply the function
     # to the underlying obj and then regroup it as it was before.
     if isinstance(df, pd.core.groupby.DataFrameGroupBy):
         df_new = _select(df.obj, cols, start, end)
@@ -46,12 +46,19 @@ def _select(df, cols=None, start=None, end=None):
             keep_cols = df.columns[df.columns.map(cols)]
             return df[keep_cols]
         else:
-            return df[cols]
+            keep_cols = [col if isinstance(col,str) else df.columns[int(col)] for col in cols]
+            return df[keep_cols]
     else:
         if (start is not None) and (end is not None):
             cols = list(df.columns)
-            idx_start = cols.index(start)
-            idx_end = cols.index(end) + 1
+            
+            if isinstance(start, str) and isinstance(end, str):
+                idx_start = cols.index(start)
+                idx_end = cols.index(end) + 1
+            else:
+                idx_start = int(start)
+                idx_end = int(end) + 1
+            
             keep_cols = cols[idx_start:idx_end]
             return df[keep_cols]
     
@@ -64,7 +71,7 @@ def _drop(df, cols=None, start=None, end=None):
     df.pipe(drop, lambda x: x.endswith("_suffix"))
     df.pipe(drop, start="col1", end="col3")
     """
-    # if we have a grouped DataFrame we'll apply select()
+    # if we have a grouped DataFrame we'll apply the function
     # to the underlying obj and then regroup it as it was before.
     if isinstance(df, pd.core.groupby.DataFrameGroupBy):
         df_new = _drop(df.obj, cols, start, end)
@@ -85,21 +92,106 @@ def _drop(df, cols=None, start=None, end=None):
             return df.drop(drop_cols, axis=1)
     
     raise Exception("drop() must define either 'cols' or both 'start' and 'end'")
-           
+
+def __col_index(df, value):
+    """Convert a column value to an index.  The value can either be an index
+    already or a string indicating a column name.
+    """
+    if isinstance(value, str):
+        return list(df.columns.values).index(value)
+    else:
+        return int(value)
+    
+def __col_name(df, value):
+    """Converts a column value to a name.  The value can either be a name
+    already of an index of a column.
+    """
+    if isinstance(value, str):
+        return value
+    else:
+        return df.columns.values[value]
+
+def _relocate(df, cols=None, start=None, end=None, before=None, after=None):
+    """Move columns.  The columns to move can be specified by either:
+    1. The 'cols' parameter which accepts an array
+    2. The 'start' and 'end' parameters that indicate start and end columns
+    By default, columns will be moved to the front of the DataFrame.  
+    Alternately, the user can specify where they want to place them using
+    the 'before' or 'after' parameters.
+    """
+    # if we have a grouped DataFrame we'll apply the function
+    # to the underlying obj and then regroup it as it was before.
+    if isinstance(df, pd.core.groupby.DataFrameGroupBy):
+        df_new = _relocate(df.obj, cols, start, end, before, after)
+        return __regroup(df_new, df)
+    
+    # convert whatever they gave us in 'cols', 'start', and 'end' into
+    # a cols list of named columns.
+    if cols is not None:
+        if isinstance(cols, str):
+            cols = [cols]
+        else:
+            cols = [__col_name(df, col) for col in cols]
+    else:
+        start_idx = __col_index(df, start)
+        end_idx = __col_index(df, end) + 1
+        cols = list(df.columns)[start_idx:end_idx]
+        
+    if (before is None) and (after is None):
+        before = 0
+    
+    new_cols = [col for col in df.columns.values if col not in cols]
+    if before == 0:
+        cols.extend(new_cols)
+        new_cols = cols
+    elif after == -1:
+        new_cols.extend(cols)
+    elif before is not None:
+        before = __col_name(df, before)
+        idx = new_cols.index(before)
+        new_cols[idx:idx] = cols
+    elif after is not None:
+        after = __col_name(df, after)
+        idx = new_cols.index(after) + 1
+        new_cols[idx:idx] = cols
+    else:
+        raise Exception("This should not happen")
+    
+    return df.loc[:,new_cols]
 
 def _rename(df, **kvargs):
     """Rename columns
     
     df.pipe(rename, new_col="col1")
     """
-    # if we have a grouped DataFrame we'll apply select()
+    # if we have a grouped DataFrame we'll apply the function
     # to the underlying obj and then regroup it as it was before.
     if isinstance(df, pd.core.groupby.DataFrameGroupBy):
         df_new = _rename(df.obj, **kvargs)
         return __regroup(df_new, df)
     
-    inv_map = {v: k for k, v in kvargs.items()}
+    # invert the column mappings (convert integers to column names)
+    inv_map = {}
+    for k, v in kvargs.items():
+        if not isinstance(v, str):
+            v = df.columns[int(v)]
+        inv_map[v] = k
+    
     return df.rename(columns=inv_map)
+
+def _rename_with(df, func):
+    """Renames columns using a function that is applied to each
+    column name.  Example:
+        
+        df.pipe(rename, lambda x: x.upper())
+    """
+    # if we have a grouped DataFrame we'll apply the function
+    # to the underlying obj and then regroup it as it was before.
+    if isinstance(df, pd.core.groupby.DataFrameGroupBy):
+        df_new = _rename_with(df.obj, func)
+        return __regroup(df_new, df)
+    
+    return df.rename(columns=func)
 
 def _filter(df, f_filter):
     """Filters the rows of a data frame.  This is done using a function 
@@ -271,6 +363,7 @@ def _summarise(df, **kvargs):
         df_new = df.apply(lambda x: _summarise(x, **kvargs))
         # drop the index we added (which is always zero and is unnamed)
         __remove_last_index(df_new, drop=True, inplace=True)
+        df_new.reset_index(drop=False, inplace=True)
         return df_new
     else:
         new_cols = {}
@@ -350,4 +443,19 @@ def _tally(df, sort=False, name="n"):
     else:
         return pd.DataFrame({name: len(df)}, index=[0])
     
-        
+def _pull(df, col=-1):
+    """Returns a column from the DataFrame.  The selector can be a 
+    column name (string) or an integer indicating the column index.
+    A negative number indicates a location relative to the end of the
+    DataFrame.  The default (-1) returns the last column, assuming
+    that this is the one you created most recently.
+    """
+    if isinstance(df, pd.core.groupby.DataFrameGroupBy):
+        return _pull(df.obj)
+    else:
+        if isinstance(col, str):
+            return df[col]
+        else:
+            if col < 0:
+                col = col + len(df.columns)
+            return df.iloc[:,col]
